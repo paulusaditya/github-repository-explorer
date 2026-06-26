@@ -8,10 +8,10 @@ import type { GitHubRepo, SearchParams, SortOption } from "@/types/github";
 import { PER_PAGE, POPULAR_LANGUAGES, SORT_OPTIONS } from "@/lib/constants";
 import { formatNumber, getURLParams, pushURLParams } from "@/lib/github";
 
-import { useDebounce } from "@/hooks/useDebounce";
-import { useDarkMode } from "@/hooks/useDarkMode";
-import { useFavorites } from "@/hooks/useFavorites";
-import { useGitHubSearch } from "@/hooks/useGitHubSearch";
+import { useDebounce } from "./../hooks/useDebounce";
+import { useDarkMode } from "./../hooks/useDarkMode";
+import { useFavorites } from "./../hooks/useFavorites";
+import { useGitHubSearch } from "./../hooks/useGitHubSearch";
 
 import { RepoCard } from "./RepoCard";
 import { DetailPanel } from "./DetailPanel";
