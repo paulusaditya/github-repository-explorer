@@ -15,7 +15,7 @@ import { useGitHubSearch } from "@/hooks/useGitHubSearch";
 
 import { RepoCard } from "./RepoCard";
 import { DetailPanel } from "./DetailPanel";
-import { FavoritesPanel } from "./FavoritePanel";
+import { FavoritesPanel } from "./FavoritesPanel";
 import { Pagination } from "./Pagination";
 import { SkeletonCard } from "./states/SkeletonCard";
 import { EmptyState } from "./states/EmptyState";
@@ -26,14 +26,28 @@ export function AppShell() {
   const [dark, setDark] = useDarkMode();
   const { favorites, toggle: toggleFav, isFav, hydrated } = useFavorites();
 
-  const initialParams = getURLParams();
-  const [inputValue, setInputValue] = useState(initialParams.query);
-  const [sort, setSort] = useState<SortOption>(initialParams.sort);
-  const [language, setLanguage] = useState(initialParams.language);
-  const [page, setPage] = useState(initialParams.page);
+  // PENTING: jangan baca window.location di sini. State awal harus identik
+  // di server dan client, kalau tidak akan terjadi hydration mismatch.
+  // URL params yang sebenarnya disinkronkan lewat useEffect di bawah,
+  // yang hanya berjalan di client SETELAH hydration selesai.
+  const [inputValue, setInputValue] = useState("");
+  const [sort, setSort] = useState<SortOption>("best-match");
+  const [language, setLanguage] = useState("");
+  const [page, setPage] = useState(1);
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
   const [activeTab, setActiveTab] = useState<"search" | "favorites">("search");
   const [mobileDetail, setMobileDetail] = useState(false);
+
+  // Baca URL params sekali, setelah mount di client, lalu terapkan ke state.
+  useEffect(() => {
+    const initialParams = getURLParams();
+    if (initialParams.query) setInputValue(initialParams.query);
+    if (initialParams.sort !== "best-match") setSort(initialParams.sort);
+    if (initialParams.language) setLanguage(initialParams.language);
+    if (initialParams.page !== 1) setPage(initialParams.page);
+    // sengaja hanya dijalankan sekali saat mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const debouncedQuery = useDebounce(inputValue, 500);
   const inputRef = useRef<HTMLInputElement>(null);
