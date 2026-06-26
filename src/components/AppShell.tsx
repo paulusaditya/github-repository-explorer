@@ -11,7 +11,7 @@ import { formatNumber, getURLParams, pushURLParams } from "@/lib/github";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import { useFavorites } from "@/hooks/useFavorites";
-import { useGitHubSearch } from "@/hooks/useGithubSearch";
+import { useGitHubSearch } from "@/hooks/useGitHubSearch";
 
 import { RepoCard } from "./RepoCard";
 import { DetailPanel } from "./DetailPanel";
