@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { clsx } from "clsx";
 import { Search, Moon, Sun, Heart, BookmarkCheck } from "lucide-react";
 
@@ -45,7 +46,13 @@ function getInitialRepoFullName() {
   return new URLSearchParams(window.location.search).get("repo");
 }
 
-export function AppShell() {
+interface AppShellProps {
+  /** Tab awal saat komponen mount. Dikontrol oleh route: "/" -> "search", "/favorites" -> "favorites". */
+  initialTab?: "search" | "favorites";
+}
+
+export function AppShell({ initialTab = "search" }: AppShellProps) {
+  const router = useRouter();
   const [dark, setDark] = useDarkMode();
   const { favorites, toggle: toggleFav, isFav, hydrated } = useFavorites();
 
@@ -58,7 +65,7 @@ export function AppShell() {
   const [language, setLanguage] = useState(() => initialParams.language || "");
   const [page, setPage] = useState(() => initialParams.page || 1);
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
-  const [activeTab, setActiveTab] = useState<"search" | "favorites">("search");
+  const [activeTab, setActiveTab] = useState<"search" | "favorites">(initialTab);
   const [mobileDetail, setMobileDetail] = useState(false);
 
   // True selama proses fetch detail repo dari URL saat reload berlangsung.
@@ -79,15 +86,15 @@ export function AppShell() {
 
   const { items, total, totalDisplay, loading, error } = useGitHubSearch(searchParams);
 
-  // Sync URL saat state berubah
+  // Sync URL saat state berubah (hanya relevan di halaman search "/")
   useEffect(() => {
-    if (submittedQuery) {
+    if (activeTab === "search" && submittedQuery) {
       pushURLParams(
         { query: submittedQuery, sort, language, page },
         selectedRepo?.full_name
       );
     }
-  }, [submittedQuery, sort, language, page, selectedRepo?.full_name]);
+  }, [activeTab, submittedQuery, sort, language, page, selectedRepo?.full_name]);
 
   // ── Reload dengan URL berisi ?repo=owner/name -> restore detail panel ──
   // Fetch langsung ke GitHub API karena repo yang dipilih belum tentu ada
@@ -182,7 +189,7 @@ export function AppShell() {
     setSelectedRepo(null);
     setActiveTab("search");
     setMobileDetail(false);
-    window.history.pushState({}, "", window.location.pathname);
+    router.push("/");
     inputRef.current?.focus();
   };
 
@@ -268,7 +275,7 @@ export function AppShell() {
           {/* Kanan: Favorites + Dark mode */}
           <div className="flex items-center gap-1 shrink-0">
             <button
-              onClick={() => setActiveTab(activeTab === "favorites" ? "search" : "favorites")}
+              onClick={() => router.push(activeTab === "favorites" ? "/" : "/favorites")}
               aria-pressed={activeTab === "favorites"}
               className={clsx(
                 "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -314,7 +321,7 @@ export function AppShell() {
                 onToggleFav={toggleFav}
                 onSelect={handleSelect}
                 selectedId={selectedRepo?.id ?? null}
-                onClose={() => setActiveTab("search")}
+                onClose={() => router.push("/")}
                 hydrated={hydrated}
               />
             </div>
@@ -500,7 +507,7 @@ export function AppShell() {
                   </h3>
                   {hydrated && favorites.length > 0 && (
                     <button
-                      onClick={() => setActiveTab("favorites")}
+                      onClick={() => router.push("/favorites")}
                       className="text-xs text-primary hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
                     >
                       View all
