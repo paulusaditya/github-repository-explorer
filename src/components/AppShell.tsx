@@ -25,40 +25,50 @@ import { LandingState } from "@/components/states/LandingState";
 // supaya scroll-nya independen dan konsisten di breakpoint desktop (lg+).
 const HEADER_HEIGHT = "3.5rem";
 
-// Format angka tanpa singkatan k/M — tampilkan angka penuh dengan separator (Nomor 8)
+// Format angka tanpa singkatan k/M — tampilkan angka penuh dengan separator
 function formatTotal(n: number): string {
   return n.toLocaleString("en-US");
+}
+
+// Baca query params dari URL secara SINKRON, dipakai sebagai initial state.
+// Ini yang mencegah flash ke LandingState saat reload: state sudah benar
+// di render pertama, tidak menunggu useEffect jalan setelah paint.
+function getInitialParams() {
+  if (typeof window === "undefined") {
+    return { query: "", sort: "best-match" as SortOption, language: "", page: 1 };
+  }
+  return getURLParams();
+}
+
+function getInitialRepoFullName() {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get("repo");
 }
 
 export function AppShell() {
   const [dark, setDark] = useDarkMode();
   const { favorites, toggle: toggleFav, isFav, hydrated } = useFavorites();
 
-  const [inputValue, setInputValue] = useState("");
-  const [submittedQuery, setSubmittedQuery] = useState("");
-  const [sort, setSort] = useState<SortOption>("best-match");
-  const [language, setLanguage] = useState("");
-  const [page, setPage] = useState(1);
+  const [initialParams] = useState(getInitialParams);
+  const [initialRepoFullName] = useState(getInitialRepoFullName);
+
+  const [inputValue, setInputValue] = useState(() => initialParams.query || "");
+  const [submittedQuery, setSubmittedQuery] = useState(() => initialParams.query || "");
+  const [sort, setSort] = useState<SortOption>(() => initialParams.sort || "best-match");
+  const [language, setLanguage] = useState(() => initialParams.language || "");
+  const [page, setPage] = useState(() => initialParams.page || 1);
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
   const [activeTab, setActiveTab] = useState<"search" | "favorites">("search");
   const [mobileDetail, setMobileDetail] = useState(false);
 
+  // True selama proses fetch detail repo dari URL saat reload berlangsung.
+  // Selagi true, UI normal (termasuk LandingState) belum dirender sama sekali,
+  // supaya tidak ada flash "home" sebelum detail-nya muncul.
+  const [restoringDetail, setRestoringDetail] = useState(() => !!initialRepoFullName);
+
   const inputRef = useRef<HTMLInputElement>(null);
   // ref untuk scroll list kembali ke atas saat pindah halaman
   const listRef = useRef<HTMLDivElement>(null);
-
-  // ── Reload URL tetap restore state Nomor 5 ──────────────────────────────────
-  useEffect(() => {
-    const p = getURLParams();
-    if (p.query) {
-      setInputValue(p.query);
-      setSubmittedQuery(p.query);
-    }
-    if (p.sort !== "best-match") setSort(p.sort);
-    if (p.language) setLanguage(p.language);
-    if (p.page !== 1) setPage(p.page);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const searchParams: SearchParams = {
     query: submittedQuery,
@@ -69,7 +79,7 @@ export function AppShell() {
 
   const { items, total, totalDisplay, loading, error } = useGitHubSearch(searchParams);
 
-  // Sync URL saat state berubah Nomor 5
+  // Sync URL saat state berubah
   useEffect(() => {
     if (submittedQuery) {
       pushURLParams(
@@ -79,12 +89,31 @@ export function AppShell() {
     }
   }, [submittedQuery, sort, language, page, selectedRepo?.full_name]);
 
-  // Reset page + selected saat query/filter berubah Nomor 5
+  // ── Reload dengan URL berisi ?repo=owner/name -> restore detail panel ──
+  // Fetch langsung ke GitHub API karena repo yang dipilih belum tentu ada
+  // di halaman hasil pencarian saat ini.
   useEffect(() => {
-    setPage(1);
-    setSelectedRepo(null);
-    setMobileDetail(false);
-  }, [submittedQuery, sort, language]);
+    if (!initialRepoFullName) return;
+
+    let cancelled = false;
+    fetch(`https://api.github.com/repos/${initialRepoFullName}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: GitHubRepo | null) => {
+        if (!cancelled && data) {
+          setSelectedRepo(data);
+          setMobileDetail(true);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setRestoringDetail(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Scroll list ke atas saat pindah halaman ────────────────────────
   useEffect(() => {
@@ -95,6 +124,32 @@ export function AppShell() {
     const q = inputValue.trim();
     if (!q) return;
     setSubmittedQuery(q);
+    setPage(1);
+    setSelectedRepo(null);
+    setMobileDetail(false);
+  };
+
+  // Reset eksplisit dipanggil dari handler perubahan filter (bukan dari effect
+  // yang memantau submittedQuery/sort/language), supaya tidak konflik dengan
+  // restore state dari URL saat reload (efek lama menimpa balik page/selectedRepo
+  // yang baru saja di-restore).
+  const handleSortChange = (value: SortOption) => {
+    setSort(value);
+    setPage(1);
+    setSelectedRepo(null);
+    setMobileDetail(false);
+  };
+
+  const handleLanguageChange = (value: string) => {
+    setLanguage(value);
+    setPage(1);
+    setSelectedRepo(null);
+    setMobileDetail(false);
+  };
+
+  const handleClearFilters = () => {
+    setSort("best-match");
+    setLanguage("");
     setPage(1);
     setSelectedRepo(null);
     setMobileDetail(false);
@@ -135,19 +190,30 @@ export function AppShell() {
     setSubmittedQuery((q) => q + "");
   };
 
+  // Selagi sedang fetch detail repo dari URL (reload di halaman detail),
+  // tampilkan loading penuh layar dulu — JANGAN render layout normal,
+  // supaya tidak sempat kelihatan LandingState/list sebelum detail muncul.
+  if (restoringDetail) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-background text-foreground">
+        <span className="text-sm text-muted-foreground">Loading…</span>
+      </div>
+    );
+  }
+
   return (
     <div
-      className="min-h-screen bg-background text-foreground flex flex-col"
+      className="h-screen overflow-hidden bg-background text-foreground flex flex-col"
       style={{ fontFamily: "var(--font-sans)" }}
     >
       {/* ── Header ── */}
       <header
-        className="sticky top-0 z-30 bg-card border-b border-border shadow-sm"
+        className="shrink-0 z-30 bg-card border-b border-border shadow-sm"
         style={{ height: HEADER_HEIGHT }}
       >
         <div className="w-full px-4 h-full grid grid-cols-[auto_1fr_auto] items-center gap-4">
 
-          {/* Kiri: Logo -> Home Nomor 1 dan Nomor 10 */} 
+          {/* Kiri: Logo -> Home */}
           <button
             onClick={handleGoHome}
             aria-label="Go to home"
@@ -159,7 +225,7 @@ export function AppShell() {
             <span className="text-sm font-semibold hidden sm:block">RepoExplorer</span>
           </button>
 
-          {/* Tengah: Search */ /* Nomor 3 tekan untuk search  */ }
+          {/* Tengah: Search */}
           <div className="relative w-full max-w-2xl mx-auto">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
             <input
@@ -189,13 +255,12 @@ export function AppShell() {
                 </button>
               )}
               <button
-                /* Nomor 2. icon x Dihilangkan 1  */ 
                 onClick={handleSubmit}
                 aria-label="Search"
                 className="flex items-center gap-1 px-2.5 py-1 rounded bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <Search className="w-3 h-3" />
-                <span className="hidden sm:block">Search</span> 
+                <span className="hidden sm:block">Search</span>
               </button>
             </div>
           </div>
@@ -232,15 +297,14 @@ export function AppShell() {
         </div>
       </header>
 
-      {/* ── Nomor 4 Main ── */}
-      <main className="flex-1 w-full flex flex-col">
+      {/* ── Main ── */}
+      <main className="flex-1 min-h-0 w-full flex flex-col overflow-hidden">
         {activeTab === "favorites" ? (
-          <div className="flex flex-col lg:flex-row flex-1">
-            {/* Sidebar favorites — scroll independen di desktop Nomor 11 */}
+          <div className="flex flex-col lg:flex-row flex-1 min-h-0 overflow-hidden">
+            {/* Sidebar favorites — scroll independen di desktop */}
             <div
               className={clsx(
-                "lg:w-[420px] xl:w-[480px] shrink-0 border-r border-border flex flex-col",
-                "lg:max-h-[calc(100vh-3.5rem)] lg:overflow-y-auto",
+                "lg:w-[420px] xl:w-[480px] shrink-0 border-r border-border flex flex-col overflow-y-auto",
                 mobileDetail && selectedRepo ? "hidden lg:flex" : "flex"
               )}
             >
@@ -255,10 +319,10 @@ export function AppShell() {
               />
             </div>
 
-            {/* Detail — tumbuh natural, tidak ada overflow paksa */}
+            {/* Detail — scroll terkontainer sendiri, tidak ikut scroll halaman */}
             <div
               className={clsx(
-                "flex-1 min-w-0",
+                "flex-1 min-w-0 overflow-y-auto",
                 mobileDetail && selectedRepo ? "flex flex-col" : "hidden lg:flex lg:flex-col"
               )}
             >
@@ -277,11 +341,11 @@ export function AppShell() {
             </div>
           </div>
         ) : (
-          <div className="flex flex-col flex-1">
+          <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
 
             {/* Filter bar + result count */}
             {submittedQuery && (
-              <div className="border-b border-border bg-card px-4 py-2 flex flex-wrap items-center gap-3">
+              <div className="shrink-0 border-b border-border bg-card px-4 py-2 flex flex-wrap items-center gap-3">
                 <span className="text-xs text-muted-foreground font-mono shrink-0">
                   {loading
                     ? "Searching…"
@@ -298,7 +362,7 @@ export function AppShell() {
                     <select
                       id="sort-select"
                       value={sort}
-                      onChange={(e) => setSort(e.target.value as SortOption)}
+                      onChange={(e) => handleSortChange(e.target.value as SortOption)}
                       className="text-xs bg-input-background border border-border rounded px-2 py-1 text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                       style={{ fontFamily: "var(--font-mono)" }}
                     >
@@ -314,7 +378,7 @@ export function AppShell() {
                     <select
                       id="lang-select"
                       value={language}
-                      onChange={(e) => setLanguage(e.target.value)}
+                      onChange={(e) => handleLanguageChange(e.target.value)}
                       className="text-xs bg-input-background border border-border rounded px-2 py-1 text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                       style={{ fontFamily: "var(--font-mono)" }}
                     >
@@ -326,7 +390,7 @@ export function AppShell() {
                   </div>
                   {(sort !== "best-match" || language) && (
                     <button
-                      onClick={() => { setSort("best-match"); setLanguage(""); }}
+                      onClick={handleClearFilters}
                       className="text-xs text-primary hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
                     >
                       Clear filters
@@ -336,18 +400,17 @@ export function AppShell() {
               </div>
             )}
 
-            {/* Two-column layout */}
-            <div className="flex flex-1">
+            {/* Three-column layout */}
+            <div className="flex flex-1 min-h-0 overflow-hidden">
 
-              {/* List — scroll independen, TIDAK ikut scroll halaman */}
+              {/* List — scroll independen, pagination selalu kelihatan di dalam frame */}
               <div
                 className={clsx(
-                  "flex flex-col border-r border-border lg:w-[420px] xl:w-[480px] shrink-0",
-                  "lg:max-h-[calc(100vh-3.5rem)]",
+                  "flex flex-col border-r border-border lg:w-[420px] xl:w-[480px] shrink-0 h-full",
                   mobileDetail && selectedRepo ? "hidden lg:flex" : "flex w-full"
                 )}
               >
-                <div ref={listRef} className="flex-1 overflow-y-auto">
+                <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto">
                   {loading && !items.length ? (
                     Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)
                   ) : error ? (
@@ -377,22 +440,24 @@ export function AppShell() {
                   )}
                 </div>
                 {!loading && !error && items.length > 0 && (
-                  <Pagination
-                    page={page}
-                    total={total}
-                    onChange={(p) => {
-                      setPage(p);
-                      setSelectedRepo(null);
-                      setMobileDetail(false);
-                    }}
-                  />
+                  <div className="shrink-0">
+                    <Pagination
+                      page={page}
+                      total={total}
+                      onChange={(p) => {
+                        setPage(p);
+                        setSelectedRepo(null);
+                        setMobileDetail(false);
+                      }}
+                    />
+                  </div>
                 )}
               </div>
 
-              {/* Detail column — Nomor 6 overflow-hidden, tumbuh natural sesuai konten */}
+              {/* Detail column — scroll terkontainer sendiri, TIDAK mendorong tinggi halaman */}
               <div
                 className={clsx(
-                  "flex-1 min-w-0",
+                  "flex-1 min-w-0 h-full overflow-y-auto",
                   mobileDetail && selectedRepo ? "flex flex-col" : "hidden lg:flex lg:flex-col"
                 )}
               >
@@ -420,12 +485,12 @@ export function AppShell() {
 
               {/* ── Sidebar favorites kanan — gaya sama persis dengan list kiri ──
                   Hanya tampil di halaman awal (belum ada submittedQuery / belum search).
-                  Begitu user search atau buka detail repo, sidebar ini disembunyikan. Nomor 11 */}
+                  Begitu user search atau buka detail repo, sidebar ini disembunyikan.
+                  Kode TIDAK dihapus, hanya dibungkus kondisi di bawah. */}
               {!submittedQuery && (
               <div
                 className={clsx(
-                  "hidden lg:flex lg:flex-col border-l border-border lg:w-[320px] xl:w-[360px] shrink-0",
-                  "lg:max-h-[calc(100vh-3.5rem)]"
+                  "hidden lg:flex lg:flex-col border-l border-border lg:w-[320px] xl:w-[360px] shrink-0 h-full"
                 )}
               >
                 <div className="px-4 py-3 border-b border-border flex items-center justify-between shrink-0">
@@ -443,7 +508,7 @@ export function AppShell() {
                   )}
                 </div>
 
-                <div className="flex-1 overflow-y-auto">
+                <div className="flex-1 min-h-0 overflow-y-auto">
                   {!hydrated ? (
                     <div className="px-4 py-6 text-xs text-muted-foreground">Loading…</div>
                   ) : favorites.length === 0 ? (
