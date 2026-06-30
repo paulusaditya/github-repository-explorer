@@ -41,7 +41,8 @@ export interface SearchParams {
 
 export interface SearchResult {
   items: GitHubRepo[];
-  total: number;
+  total: number;        // dibatasi 1000 — untuk pagination (GitHub limit) Nomor 8
+  totalDisplay: number; // angka asli dari API — untuk ditampilkan ke user
   loading: boolean;
   error: string | null;
 }

@@ -6,13 +6,14 @@ export function useGitHubSearch(params: SearchParams): SearchResult {
   const [state, setState] = useState<SearchResult>({
     items: [],
     total: 0,
+    totalDisplay: 0,
     loading: false,
     error: null,
   });
 
   useEffect(() => {
     if (!params.query.trim()) {
-      setState({ items: [], total: 0, loading: false, error: null });
+      setState({ items: [], total: 0, totalDisplay: 0, loading: false, error: null });
       return;
     }
     let cancelled = false;
@@ -40,9 +41,11 @@ export function useGitHubSearch(params: SearchParams): SearchResult {
       })
       .then((data) => {
         if (!cancelled) {
+          const rawTotal = data.total_count || 0;
           setState({
             items: data.items || [],
-            total: Math.min(data.total_count || 0, 1000),
+            total: Math.min(rawTotal, 1000), // pagination dibatasi 1000 (GitHub API limit)
+            totalDisplay: rawTotal,           // angka asli untuk ditampilkan
             loading: false,
             error: null,
           });
@@ -50,7 +53,7 @@ export function useGitHubSearch(params: SearchParams): SearchResult {
       })
       .catch((err: Error) => {
         if (!cancelled) {
-          setState({ items: [], total: 0, loading: false, error: err.message });
+          setState({ items: [], total: 0, totalDisplay: 0, loading: false, error: err.message });
         }
       });
 

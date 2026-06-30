@@ -1,8 +1,16 @@
 import { useState, useEffect } from "react";
 
 export function useDarkMode() {
-  const [dark, setDark] = useState(false);
+  // Lazy init: baca class yang sudah dipasang oleh blocking script di layout.tsx,
+  // supaya state awal React match dengan apa yang sudah ter-render di HTML.
+  // Mencegah flash sesaat setelah hydration. Nomor 12
+  const [dark, setDark] = useState<boolean>(() => {
+    if (typeof document === "undefined") return false;
+    return document.documentElement.classList.contains("dark");
+  });
 
+  // Sinkronkan ulang setelah mount (mis. kalau localStorage berubah di tab lain,
+  // atau saat SSR vs client mismatch jarang terjadi)
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -13,6 +21,7 @@ export function useDarkMode() {
         : window.matchMedia("(prefers-color-scheme: dark)").matches;
 
     setDark(initialDark);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
